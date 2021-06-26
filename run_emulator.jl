@@ -3,6 +3,10 @@ const EMULATOR = "Android Emulator"
 const AVD_DIR = expanduser("~/.android/avd/oxphone.avd/")
 const ADB = expanduser("~/Android/Sdk/platform-tools/adb")
 
+struct NonfatalException <: Exception
+    msg::String
+end
+
 abstract type Rotation end
 struct Normal <: Rotation end
 struct Left <: Rotation end
@@ -118,19 +122,18 @@ function orientation(::AndroidWindow)
     return emu_width > emu_height ? Landscape() : Portrait()
 end
 
-# We don't have easy way to extract the current rotation of AndroidWindow from 
-_current_android_window_rotation = Normal()
 function rotation(w::AndroidWindow)
-    # check it is compatible with the orientation
-    #@assert orientation(w) == orientation(w, _current_android_window_rotation)
-    return _current_android_window_rotation
+    sys_details = readchomp(`$ADB shell dumpsys window displays`)
+    m = match(r"mPredictedRotation=(\d)", sys_details)
+    m isa Nothing && throw(NonfatalException("couldn't determine AndroidWindow rotation"))
+    rot_id = parse(Int, m[1])
+    return (Normal(), Left(), Inverted(), Right())[rot_id + 1]
 end
 
-send_to_emulator(keyseq) = run(`xdotool search  --desktop 0 --name "$EMULATOR"  windowactivate key $keyseq`)
+send_to_emulator(keyseq) = run(`xdotool search  --desktop 0 --name "$EMULATOR"  windowactivate key --delay=40 $keyseq`)
 
 function rotate!(w::AndroidWindow, t::Turn)
     _exectute_rotate!(w, t)
-    global _current_android_window_rotation = rotate(_current_android_window_rotation, t)
 end
 _exectute_rotate!(::AndroidWindow, ::Clockwise) =  send_to_emulator(`ctrl+Right`)
 _exectute_rotate!(::AndroidWindow, ::CounterClockwise) = send_to_emulator(`ctrl+Left`)
@@ -142,7 +145,7 @@ rotate!(w::AndroidWindow, r::Rotation) = rotate!(w, needed_turn(rotation(w), r))
 ### Emulator: combining all the rotational controls
 
 scale_up() = send_to_emulator(`ctrl+Up`)
-scale_up_full() = send_to_emulator(`ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up`)
+scale_up_full() = send_to_emulator(`ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up`)
 
 function _rotate!(::Emulator, wt, vt)
     disable_autorotation!(AndroidView())
@@ -159,15 +162,6 @@ rotate!(e::Emulator, ::Landscape) = _rotate!(e, Left(), Right())
 
 reorientate!() = rotate!(Emulator(), orientation(RealScreen()))
 
-### Guessing Android Window Rotation
-# This is partially based on the behavour of reorientate() 
-guess_window_rotation() = @show guess_window_rotation(orientation(AndroidWindow()))
-guess_window_rotation(::Portrait) = Normal()
-guess_window_rotation(::Landscape) = Left()
-
-function set_window_rotation_to_best_guess!()
-    global _current_android_window_rotation = guess_window_rotation()
-end
 ###########################
 
 function is_running()
@@ -178,6 +172,7 @@ end
 # Sometimes will get errors if was trying to act while screen is black because it is mid-rotate.
 is_ok_error(::Any) = false
 is_ok_error(::ProcessFailedException) = true
+is_ok_error(::NonfatalException) = true
 is_ok_error(err::CompositeException) = all(is_ok_error, err)
 is_ok_error(err::TaskFailedException) = is_ok_error(err.task.result)
 function look_after_orientation!()
@@ -205,7 +200,6 @@ end
 
 function main()
     ensure_started()
-    retry(set_window_rotation_to_best_guess!)()
     look_after_orientation!()
 end
 
