@@ -154,14 +154,14 @@ function _rotate!(::Emulator, wt, vt)
     return nothing
 end
 
-rotate!(e::Emulator, ::Portrait) = _rotate!(e, Normal(), Inverted())
-rotate!(e::Emulator, ::Landscape) = _rotate!(e, Left(), Left())
+rotate!(e::Emulator, ::Portrait) = _rotate!(e, Normal(), Normal())
+rotate!(e::Emulator, ::Landscape) = _rotate!(e, Left(), Right())
 
 reorientate!() = rotate!(Emulator(), orientation(RealScreen()))
 
 ### Guessing Android Window Rotation
 # This is partially based on the behavour of reorientate() 
-guess_window_rotation() = guess_window_rotation(orientation(AndroidWindow()))
+guess_window_rotation() = @show guess_window_rotation(orientation(AndroidWindow()))
 guess_window_rotation(::Portrait) = Normal()
 guess_window_rotation(::Landscape) = Left()
 
