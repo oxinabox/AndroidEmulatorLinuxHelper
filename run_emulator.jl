@@ -97,6 +97,12 @@ function rotation(::RealScreen)::Rotation
     end
 end
 
+function screen_size(::RealScreen)
+    display_details = readlines(`xrandr -q`)[2]
+    m = match(r"(\d+)x(\d+)\+0\+0", display_details)
+    return parse.(Int, m.captures)
+end
+
 
 ### Android View
 
@@ -112,14 +118,19 @@ rotate!(::AndroidView, ::Left) = run(`$ADB shell settings put system user_rotati
 
 # orientatation known for sure for AndroidWindow, but rotation is not
 # so we overload orientation directly
-function orientation(::AndroidWindow)
+function orientation(w::AndroidWindow)
+    width, height = screen_size(w)
+    return width > height ? Landscape() : Portrait()
+end
+
+function screen_size(::AndroidWindow)
     window_details = split.(readlines(`wmctrl -l -G`), r" +"; limit=8)
     titles = last.(window_details)
 
-    emu_ind = findfirst(contains(EMULATOR), titles)
-    emu_width = parse(Int, window_details[emu_ind][5])
-    emu_height =  parse(Int, window_details[emu_ind][6])
-    return emu_width > emu_height ? Landscape() : Portrait()
+    ind = findfirst(contains(EMULATOR), titles)
+    width = parse(Int, window_details[ind][5])
+    height =  parse(Int, window_details[ind][6])
+    return width, height
 end
 
 function rotation(w::AndroidWindow)
@@ -145,7 +156,13 @@ rotate!(w::AndroidWindow, r::Rotation) = rotate!(w, needed_turn(rotation(w), r))
 ### Emulator: combining all the rotational controls
 
 scale_up() = send_to_emulator(`ctrl+Up`)
-scale_up_full() = send_to_emulator(`ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up`)
+function scale_up_full()
+    if 200 < minimum(screen_size(RealScreen()) .- screen_size(AndroidWindow()))
+        # While sending keystokes is a more graceful transition, it can't get to the full size
+        #send_to_emulator(`ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up ctrl+Up`)
+        run(`wmctrl -r "$EMULATOR" -e 0,6,0,100000,100000`)
+    end
+end
 
 function _rotate!(::Emulator, wt, vt)
     disable_autorotation!(AndroidView())
